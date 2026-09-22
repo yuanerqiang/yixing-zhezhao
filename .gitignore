@@ -1,2 +1,12 @@
 # 构建产物
 release/
+
+# 环境变量与本地密钥
+.env
+.env.*
+!.env.example
+secrets/
+*.pem
+*.key
+*.p12
+*.pfx
