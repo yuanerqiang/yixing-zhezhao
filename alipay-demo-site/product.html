@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>学习遮罩 - 产品与服务</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; font-family: "Microsoft YaHei", "PingFang SC", sans-serif; }
+  body { color: #333; background: #f7f8fa; }
+  .nav { display: flex; align-items: center; justify-content: space-between; padding: 18px 60px; background: #fff; border-bottom: 1px solid #eee; }
+  .logo { font-size: 24px; font-weight: 700; color: #1677ff; }
+  .nav-links a { margin-left: 32px; color: #555; text-decoration: none; font-size: 15px; }
+  .nav-links a:hover { color: #1677ff; }
+  .nav-links .btn { background: #1677ff; color: #fff; padding: 8px 20px; border-radius: 20px; }
+  .page-title { text-align: center; padding: 44px 0 10px; font-size: 30px; color: #111; }
+  .page-sub { text-align: center; color: #888; font-size: 15px; margin-bottom: 36px; }
+  .products { display: flex; justify-content: center; gap: 36px; padding: 0 60px 60px; flex-wrap: wrap; }
+  .product { width: 340px; background: #fff; border-radius: 14px; overflow: hidden; box-shadow: 0 2px 12px rgba(0,0,0,.06); }
+  .product .img { height: 170px; background: linear-gradient(135deg, #1677ff, #69b1ff); display: flex; align-items: center; justify-content: center; color: #fff; font-size: 34px; font-weight: 700; }
+  .product .body { padding: 24px; }
+  .product h3 { font-size: 20px; color: #111; margin-bottom: 8px; }
+  .product .desc { font-size: 14px; color: #777; line-height: 1.7; margin-bottom: 16px; height: 48px; }
+  .product .price { font-size: 28px; color: #ff4d4f; font-weight: 700; }
+  .product .price small { font-size: 14px; color: #999; font-weight: 400; }
+  .product .buy { display: block; text-align: center; margin-top: 16px; background: #1677ff; color: #fff; padding: 11px 0; border-radius: 8px; text-decoration: none; font-size: 16px; }
+  .product .buy:hover { background: #0958d9; }
+  .footer { text-align: center; padding: 30px; color: #999; font-size: 13px; border-top: 1px solid #eee; background: #fff; }
+</style>
+</head>
+<body>
+  <div class="nav">
+    <div class="logo">学习遮罩</div>
+    <div class="nav-links">
+      <a href="#">首页</a>
+      <a href="#">产品介绍</a>
+      <a href="#">价格</a>
+      <a href="#">使用教程</a>
+      <a href="#">关于我们</a>
+      <a href="#" class="btn">立即购买</a>
+    </div>
+  </div>
+  <div class="page-title">产品与服务</div>
+  <div class="page-sub">选择适合你的学习训练方案，付费后立即开通</div>
+  <div class="products">
+    <div class="product">
+      <div class="img">学习遮罩</div>
+      <div class="body">
+        <h3>标准版 · 月度</h3>
+        <p class="desc">包含全部遮罩训练功能、学习进度追踪，适合初次体验的用户。</p>
+        <div class="price">¥9.90 <small>/ 月</small></div>
+        <a href="#" class="buy">立即购买</a>
+      </div>
+    </div>
+    <div class="product">
+      <div class="img" style="background: linear-gradient(135deg, #fa8c16, #ffc069);">学习遮罩</div>
+      <div class="body">
+        <h3>专业版 · 季度</h3>
+        <p class="desc">在标准版基础上增加高级遮罩模式与个性化复习计划，性价比之选。</p>
+        <div class="price">¥29.90 <small>/ 季</small></div>
+        <a href="#" class="buy">立即购买</a>
+      </div>
+    </div>
+    <div class="product">
+      <div class="img" style="background: linear-gradient(135deg, #52c41a, #95de64);">学习遮罩</div>
+      <div class="body">
+        <h3>畅学版 · 年度</h3>
+        <p class="desc">全年畅享所有功能与后续更新，适合长期坚持学习训练的用户。</p>
+        <div class="price">¥99.00 <small>/ 年</small></div>
+        <a href="#" class="buy">立即购买</a>
+      </div>
+    </div>
+  </div>
+  <div class="footer">© 2026 学习遮罩 保留所有权利 | 联系方式：support@xuexizhezhao.com</div>
+</body>
+</html>

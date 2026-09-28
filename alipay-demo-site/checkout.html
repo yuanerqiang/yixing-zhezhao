@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>订单确认 - 学习遮罩</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; font-family: "Microsoft YaHei", "PingFang SC", sans-serif; }
+  body { color: #333; background: #f5f6f8; padding: 40px 0 60px; }
+  .nav { display: flex; align-items: center; justify-content: space-between; padding: 18px 60px; background: #fff; border-bottom: 1px solid #eee; margin-bottom: 30px; }
+  .logo { font-size: 24px; font-weight: 700; color: #1677ff; }
+  .container { width: 720px; margin: 0 auto; }
+  .box { background: #fff; border-radius: 12px; box-shadow: 0 2px 10px rgba(0,0,0,.05); padding: 30px 40px; }
+  .box h2 { font-size: 22px; color: #111; margin-bottom: 22px; }
+  .row { display: flex; justify-content: space-between; padding: 13px 0; border-bottom: 1px dashed #eee; font-size: 15px; }
+  .row .label { color: #888; }
+  .row .val { color: #333; }
+  .amount { display: flex; justify-content: space-between; align-items: center; padding: 20px 0; }
+  .amount .label { color: #555; font-size: 15px; }
+  .amount .num { color: #ff4d4f; font-size: 32px; font-weight: 700; }
+  .pay-methods { margin: 20px 0 10px; }
+  .pay-methods .title { font-size: 15px; color: #555; margin-bottom: 12px; }
+  .method { display: flex; align-items: center; gap: 12px; border: 2px solid #e8e8e8; border-radius: 10px; padding: 14px 18px; margin-bottom: 12px; cursor: pointer; }
+  .method.active { border-color: #1677ff; background: #f0f6ff; }
+  .method .logo-img { width: 36px; height: 36px; border-radius: 8px; display: flex; align-items: center; justify-content: center; color: #fff; font-size: 14px; font-weight: 700; }
+  .method .name { font-size: 15px; }
+  .alipay { background: #1677ff; }
+  .wechat { background: #07c160; }
+  .bank { background: #fa8c16; }
+  .submit { width: 100%; margin-top: 22px; background: #1677ff; color: #fff; border: none; font-size: 18px; padding: 15px 0; border-radius: 10px; cursor: pointer; }
+  .submit:hover { background: #0958d9; }
+  .tip { text-align: center; color: #aaa; font-size: 12px; margin-top: 14px; }
+  .footer { text-align: center; padding: 30px; color: #999; font-size: 13px; }
+</style>
+</head>
+<body>
+  <div class="nav">
+    <div class="logo">学习遮罩</div>
+  </div>
+  <div class="container">
+    <div class="box">
+      <h2>确认订单</h2>
+      <div class="row"><span class="label">商品名称</span><span class="val">学习遮罩 · 标准版（月度）</span></div>
+      <div class="row"><span class="label">订单编号</span><span class="val">2026092700001234</span></div>
+      <div class="row"><span class="label">开通方式</span><span class="val">付款后自动开通</span></div>
+      <div class="amount">
+        <span class="label">应付金额</span>
+        <span class="num">¥9.90</span>
+      </div>
+      <div class="pay-methods">
+        <div class="title">选择支付方式</div>
+        <div class="method active">
+          <div class="logo-img alipay">支</div>
+          <span class="name">支付宝支付</span>
+        </div>
+        <div class="method">
+          <div class="logo-img wechat">微</div>
+          <span class="name">微信支付</span>
+        </div>
+        <div class="method">
+          <div class="logo-img bank">卡</div>
+          <span class="name">银行卡支付</span>
+        </div>
+      </div>
+      <button class="submit">确认支付 ¥9.90</button>
+      <div class="tip">支付成功后，订单信息将实时同步</div>
+    </div>
+  </div>
+  <div class="footer">© 2026 学习遮罩 保留所有权利</div>
+</body>
+</html>

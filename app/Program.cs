@@ -1,11 +1,16 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.Drawing.Imaging;
+using System.IO;
+using System.Net;
 using System.Runtime.InteropServices;
+using System.Text;
 using System.Threading;
 using System.Windows.Forms;
+using Microsoft.Win32;
 
 namespace MaskApp
 {
@@ -47,11 +52,13 @@ namespace MaskApp
         private readonly Button undoButton;
         private readonly Button clearButton;
         private readonly Button refreshButton;
+        private readonly Button paymentButton;
         private readonly Label statusLabel;
         private readonly Label brushSizeLabel;
         private readonly System.Windows.Forms.Timer hoverTimer;
         private InputCaptureWindow drawWindow;
         private bool drawingSuspended;
+        private LicenseState licenseState;
 
         public ControlWindow()
         {
@@ -132,6 +139,9 @@ namespace MaskApp
             refreshButton = CreateBarButton("读背景");
             refreshButton.Click += delegate { RefreshBackground(); };
 
+            paymentButton = CreateBarButton("购买");
+            paymentButton.Click += delegate { OpenPaymentPage(); };
+
             Button closeButton = CreateBarButton("退出");
             closeButton.Click += delegate { Close(); };
 
@@ -144,6 +154,7 @@ namespace MaskApp
             layout.Controls.Add(refreshButton);
             layout.Controls.Add(brushSizeLabel);
             layout.Controls.Add(brushSizeTrackBar);
+            layout.Controls.Add(paymentButton);
             layout.Controls.Add(closeButton);
             Controls.Add(layout);
 
@@ -162,6 +173,44 @@ namespace MaskApp
             };
 
             UpdateStatus(false);
+            InitializeLicense();
+        }
+
+        private void InitializeLicense()
+        {
+            try
+            {
+                licenseState = LicenseManager.Refresh();
+
+                if (licenseState.Locked)
+                {
+                    SetStatus(
+                        "试用已结束，点击“购买”解锁",
+                        Color.FromArgb(255, 180, 90));
+                }
+                else if (licenseState.Paid)
+                {
+                    SetStatus(
+                        "已解锁全部功能",
+                        Color.FromArgb(125, 230, 165));
+                }
+                else
+                {
+                    int remaining = Math.Max(
+                        1,
+                        LicenseManager.TrialDays - licenseState.DaysUsed);
+                    SetStatus(
+                        "试用中（剩余 " + remaining + " 天）",
+                        Color.FromArgb(125, 230, 165));
+                }
+            }
+            catch
+            {
+                licenseState = null;
+                SetStatus(
+                    "授权状态获取失败（不影响试用）",
+                    Color.FromArgb(190, 195, 202));
+            }
         }
 
         private static Button CreateBarButton(string text)
@@ -184,6 +233,19 @@ namespace MaskApp
 
         private void ActivateTool(MaskTool tool)
         {
+            if (licenseState != null && licenseState.Locked)
+            {
+                MessageBox.Show(
+                    this,
+                    "7 天免费试用已结束。\n\n"
+                        + "支付 " + licenseState.Price.ToString("0.00") + " 元即可解锁全部功能。\n"
+                        + "点击「购买」→ 选择「支付宝」完成付款后自动解锁。",
+                    "试用已结束",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Information);
+                return;
+            }
+
             if (drawWindow == null)
             {
                 if (!overlay.HasBackground && !CaptureBackgroundAndUpdate(false))
@@ -262,6 +324,46 @@ namespace MaskApp
             if (CaptureBackgroundAndUpdate(true))
             {
                 SetStatus("已重新读取背景并清除旧遮罩", Color.FromArgb(125, 230, 165));
+            }
+        }
+
+        private void OpenPaymentPage()
+        {
+            try
+            {
+                DialogResult choice = MessageBox.Show(
+                    this,
+                    "请选择支付方式：\n\n"
+                        + "是（推荐）— 支付宝，扫码或登录支付\n"
+                        + "否 — 银行卡支付（海外通道）\n"
+                        + "取消 — 暂不购买",
+                    "选择支付方式",
+                    MessageBoxButtons.YesNoCancel,
+                    MessageBoxIcon.Question);
+
+                if (choice == DialogResult.Cancel)
+                {
+                    return;
+                }
+
+                PaymentServiceLauncher.OpenCheckout(
+                    choice == DialogResult.Yes,
+                    LicenseManager.GetMachineId(),
+                    LicenseManager.GetFirstUseUnixMs());
+                SetStatus(
+                    choice == DialogResult.Yes
+                        ? "支付宝支付页面已在浏览器打开"
+                        : "银行卡支付页面已在浏览器打开",
+                    Color.FromArgb(125, 230, 165));
+            }
+            catch (Exception exception)
+            {
+                MessageBox.Show(
+                    this,
+                    exception.Message,
+                    "无法打开购买页面",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Warning);
             }
         }
 
@@ -522,6 +624,563 @@ namespace MaskApp
             overlay.Close();
             overlay.Dispose();
             base.OnFormClosed(e);
+        }
+    }
+
+    internal static class PaymentServiceLauncher
+    {
+        private const string ServiceBaseUrl = "http://127.0.0.1:8787";
+        private static readonly object StartLock = new object();
+
+        public static void OpenCheckout(
+            bool useAlipay,
+            string machineId,
+            string firstUseUnixMs)
+        {
+            lock (StartLock)
+            {
+                if (!IsServiceReady())
+                {
+                    string serviceDirectory = FindServiceDirectory();
+                    if (serviceDirectory == null)
+                    {
+                        throw new InvalidOperationException(
+                            "没有找到 payment-service 目录。请确认它在程序目录或其上一级目录中。");
+                    }
+
+                    string nodePath = FindNodeExecutable();
+                    if (nodePath == null)
+                    {
+                        throw new InvalidOperationException(
+                            "没有找到 Node.js。请安装 Node.js 20 或更高版本。");
+                    }
+
+                    string serverPath = Path.Combine(serviceDirectory, "server.mjs");
+                    if (!File.Exists(serverPath))
+                    {
+                        throw new InvalidOperationException(
+                            "payment-service 中缺少 server.mjs。");
+                    }
+
+                    StartService(nodePath, serviceDirectory, serverPath);
+                    if (!WaitForService(8000))
+                    {
+                        throw new InvalidOperationException(
+                            "支付服务启动失败。请先在 payment-service 目录运行 npm install，"
+                            + "并检查 .env 配置。");
+                    }
+                }
+
+                string path;
+                if (useAlipay)
+                {
+                    path = "/alipay/buy?machineId="
+                        + Uri.EscapeDataString(machineId ?? "")
+                        + "&firstUse="
+                        + Uri.EscapeDataString(firstUseUnixMs ?? "");
+                }
+                else
+                {
+                    path = "/buy";
+                }
+
+                Process.Start(new ProcessStartInfo
+                {
+                    FileName = ServiceBaseUrl + path,
+                    UseShellExecute = true
+                });
+            }
+        }
+
+        private static void StartService(
+            string nodePath,
+            string serviceDirectory,
+            string serverPath)
+        {
+            ProcessStartInfo startInfo = new ProcessStartInfo();
+            startInfo.FileName = nodePath;
+            startInfo.Arguments = "\"" + serverPath + "\"";
+            startInfo.WorkingDirectory = serviceDirectory;
+            startInfo.UseShellExecute = false;
+            startInfo.CreateNoWindow = true;
+            startInfo.WindowStyle = ProcessWindowStyle.Hidden;
+
+            Process process = Process.Start(startInfo);
+            if (process != null)
+            {
+                process.Dispose();
+            }
+        }
+
+        private static bool WaitForService(int timeoutMilliseconds)
+        {
+            DateTime deadline = DateTime.UtcNow.AddMilliseconds(timeoutMilliseconds);
+
+            while (DateTime.UtcNow < deadline)
+            {
+                if (IsServiceReady())
+                {
+                    return true;
+                }
+
+                Thread.Sleep(200);
+            }
+
+            return IsServiceReady();
+        }
+
+        private static bool IsServiceReady()
+        {
+            try
+            {
+                HttpWebRequest request = (HttpWebRequest)WebRequest.Create(
+                    ServiceBaseUrl + "/health");
+                request.Method = "GET";
+                request.Timeout = 700;
+                request.ReadWriteTimeout = 700;
+                request.Proxy = null;
+
+                using (HttpWebResponse response =
+                    (HttpWebResponse)request.GetResponse())
+                {
+                    if ((int)response.StatusCode < 200
+                        || (int)response.StatusCode >= 300)
+                    {
+                        return false;
+                    }
+
+                    using (Stream stream = response.GetResponseStream())
+                    using (StreamReader reader = new StreamReader(stream))
+                    {
+                        string body = reader.ReadToEnd();
+                        return body.Contains(
+                            "\"service\": \"study-mask-payment-service\"");
+                    }
+                }
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private static string FindServiceDirectory()
+        {
+            string baseDirectory = AppDomain.CurrentDomain.BaseDirectory;
+            string[] candidates =
+            {
+                Path.Combine(baseDirectory, "payment-service"),
+                Path.GetFullPath(Path.Combine(
+                    baseDirectory,
+                    "..",
+                    "payment-service")),
+                Path.GetFullPath(Path.Combine(
+                    baseDirectory,
+                    "..",
+                    "..",
+                    "payment-service"))
+            };
+
+            foreach (string candidate in candidates)
+            {
+                if (Directory.Exists(candidate))
+                {
+                    return candidate;
+                }
+            }
+
+            return null;
+        }
+
+        private static string FindNodeExecutable()
+        {
+            string path = Environment.GetEnvironmentVariable("PATH");
+            if (!string.IsNullOrEmpty(path))
+            {
+                foreach (string directory in path.Split(Path.PathSeparator))
+                {
+                    if (string.IsNullOrWhiteSpace(directory))
+                    {
+                        continue;
+                    }
+
+                    try
+                    {
+                        string candidate = Path.Combine(directory.Trim(), "node.exe");
+                        if (File.Exists(candidate))
+                        {
+                            return candidate;
+                        }
+                    }
+                    catch
+                    {
+                        // Ignore malformed PATH entries.
+                    }
+                }
+            }
+
+            string programFiles = Environment.GetFolderPath(
+                Environment.SpecialFolder.ProgramFiles);
+            string defaultPath = Path.Combine(
+                programFiles,
+                "nodejs",
+                "node.exe");
+            return File.Exists(defaultPath) ? defaultPath : null;
+        }
+    }
+
+    internal sealed class LicenseState
+    {
+        public bool TrialActive;
+        public bool Paid;
+        public decimal Price;
+        public int DaysUsed;
+        public int TrialDays;
+
+        public bool Locked
+        {
+            get { return !Paid && !TrialActive; }
+        }
+    }
+
+    internal static class LicenseManager
+    {
+        private const string ServiceBaseUrl = "http://127.0.0.1:8787";
+        private const string RegistryPath = @"Software\StudyMask";
+        private const int DefaultTrialDays = 7;
+        private const decimal TrialPrice = 4.00m;
+        private const decimal FullPrice = 9.90m;
+
+        private static string cachedMachineId;
+        private static string cachedFirstUseUnixMs;
+
+        public static int TrialDays
+        {
+            get { return DefaultTrialDays; }
+        }
+
+        public static string GetMachineId()
+        {
+            if (!string.IsNullOrEmpty(cachedMachineId))
+            {
+                return cachedMachineId;
+            }
+
+            string registryValue = ReadRegistry("MachineId");
+            string fileValue = ReadAppDataFile("machine.txt");
+
+            if (!string.IsNullOrEmpty(registryValue))
+            {
+                cachedMachineId = registryValue;
+                if (string.IsNullOrEmpty(fileValue))
+                {
+                    WriteAppDataFile("machine.txt", registryValue);
+                }
+                return registryValue;
+            }
+
+            if (!string.IsNullOrEmpty(fileValue))
+            {
+                cachedMachineId = fileValue;
+                WriteRegistry("MachineId", fileValue);
+                return fileValue;
+            }
+
+            string generated = Guid.NewGuid().ToString("N");
+            cachedMachineId = generated;
+            WriteRegistry("MachineId", generated);
+            WriteAppDataFile("machine.txt", generated);
+            return generated;
+        }
+
+        public static string GetFirstUseUnixMs()
+        {
+            if (!string.IsNullOrEmpty(cachedFirstUseUnixMs))
+            {
+                return cachedFirstUseUnixMs;
+            }
+
+            string registryValue = ReadRegistry("FirstUseUnixMs");
+            string fileValue = ReadAppDataFile("first_use.txt");
+
+            if (!string.IsNullOrEmpty(registryValue)
+                && !string.IsNullOrEmpty(fileValue))
+            {
+                cachedFirstUseUnixMs = EarlierUnixMs(registryValue, fileValue);
+                return cachedFirstUseUnixMs;
+            }
+
+            string existing = !string.IsNullOrEmpty(registryValue)
+                ? registryValue
+                : fileValue;
+            if (!string.IsNullOrEmpty(existing))
+            {
+                cachedFirstUseUnixMs = existing;
+                WriteRegistry("FirstUseUnixMs", existing);
+                WriteAppDataFile("first_use.txt", existing);
+                return existing;
+            }
+
+            string now = UnixMsNow().ToString();
+            cachedFirstUseUnixMs = now;
+            WriteRegistry("FirstUseUnixMs", now);
+            WriteAppDataFile("first_use.txt", now);
+            return now;
+        }
+
+        /// <summary>
+        /// 同步并查询授权状态：先注册本机（首次使用时间以服务端记录为准，重装不会重置），
+        /// 再返回服务端权威状态。服务不可用时退回本地计算（不解除锁定）。
+        /// </summary>
+        public static LicenseState Refresh()
+        {
+            string machineId = GetMachineId();
+            string firstUse = GetFirstUseUnixMs();
+
+            try
+            {
+                string url = ServiceBaseUrl
+                    + "/api/alipay/register?format=text&machineId="
+                    + Uri.EscapeDataString(machineId)
+                    + "&firstUse="
+                    + Uri.EscapeDataString(firstUse);
+
+                HttpWebRequest request = (HttpWebRequest)WebRequest.Create(url);
+                request.Method = "GET";
+                request.Timeout = 2500;
+                request.ReadWriteTimeout = 2500;
+                request.Proxy = null;
+
+                using (HttpWebResponse response =
+                    (HttpWebResponse)request.GetResponse())
+                {
+                    if ((int)response.StatusCode < 200
+                        || (int)response.StatusCode >= 300)
+                    {
+                        return ComputeFallbackState(machineId, firstUse);
+                    }
+
+                    using (Stream stream = response.GetResponseStream())
+                    using (StreamReader reader = new StreamReader(stream))
+                    {
+                        LicenseState state = ParseState(reader.ReadToEnd());
+                        if (state != null)
+                        {
+                            return state;
+                        }
+                    }
+                }
+            }
+            catch
+            {
+                // 支付服务不可用：按本地时间兜底，绝不误判为已解锁。
+            }
+
+            return ComputeFallbackState(machineId, firstUse);
+        }
+
+        private static LicenseState ComputeFallbackState(
+            string machineId,
+            string firstUseUnixMs)
+        {
+            LicenseState state = new LicenseState();
+            state.TrialDays = DefaultTrialDays;
+            state.Paid = false;
+
+            long firstUse;
+            if (long.TryParse(firstUseUnixMs, out firstUse) && firstUse > 0)
+            {
+                long now = UnixMsNow();
+                long days = firstUse <= now
+                    ? (now - firstUse) / 86400000L
+                    : 0;
+                state.DaysUsed = days > int.MaxValue ? int.MaxValue : (int)days;
+            }
+            else
+            {
+                state.DaysUsed = 0;
+            }
+
+            state.TrialActive = state.DaysUsed < state.TrialDays;
+            state.Price = state.TrialActive ? TrialPrice : FullPrice;
+            return state;
+        }
+
+        private static LicenseState ParseState(string text)
+        {
+            if (string.IsNullOrEmpty(text))
+            {
+                return null;
+            }
+
+            LicenseState state = new LicenseState();
+            state.TrialActive = true;
+            state.Paid = false;
+            state.Price = TrialPrice;
+            state.TrialDays = DefaultTrialDays;
+            state.DaysUsed = 0;
+
+            foreach (string rawLine in text.Split('\n'))
+            {
+                string line = rawLine.Trim();
+                if (string.IsNullOrEmpty(line))
+                {
+                    continue;
+                }
+
+                int separator = line.IndexOf('=');
+                if (separator <= 0)
+                {
+                    continue;
+                }
+
+                string key = line.Substring(0, separator).Trim();
+                string value = line.Substring(separator + 1).Trim();
+
+                switch (key)
+                {
+                    case "trialActive":
+                        state.TrialActive = value == "true";
+                        break;
+                    case "paid":
+                        state.Paid = value == "true";
+                        break;
+                    case "price":
+                        {
+                            decimal parsed;
+                            if (decimal.TryParse(value, out parsed))
+                            {
+                                state.Price = parsed;
+                            }
+                            break;
+                        }
+                    case "daysUsed":
+                        {
+                            int parsed;
+                            if (int.TryParse(value, out parsed) && parsed >= 0)
+                            {
+                                state.DaysUsed = parsed;
+                            }
+                            break;
+                        }
+                    case "trialDays":
+                        {
+                            int parsed;
+                            if (int.TryParse(value, out parsed) && parsed > 0)
+                            {
+                                state.TrialDays = parsed;
+                            }
+                            break;
+                        }
+                }
+            }
+
+            return state;
+        }
+
+        private static string EarlierUnixMs(string first, string second)
+        {
+            long firstValue;
+            long secondValue;
+            if (long.TryParse(first, out firstValue)
+                && long.TryParse(second, out secondValue))
+            {
+                return firstValue <= secondValue ? first : second;
+            }
+
+            return string.IsNullOrEmpty(first) ? second : first;
+        }
+
+        private static long UnixMsNow()
+        {
+            return (long)(DateTime.UtcNow
+                - new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc))
+                .TotalMilliseconds;
+        }
+
+        private static string ReadRegistry(string name)
+        {
+            try
+            {
+                using (RegistryKey key = Registry.CurrentUser.OpenSubKey(
+                    RegistryPath))
+                {
+                    if (key == null)
+                    {
+                        return "";
+                    }
+
+                    object value = key.GetValue(name);
+                    return value == null ? "" : value.ToString();
+                }
+            }
+            catch
+            {
+                return "";
+            }
+        }
+
+        private static void WriteRegistry(string name, string value)
+        {
+            try
+            {
+                using (RegistryKey key = Registry.CurrentUser.CreateSubKey(
+                    RegistryPath))
+                {
+                    if (key != null)
+                    {
+                        key.SetValue(name, value);
+                    }
+                }
+            }
+            catch
+            {
+                // 注册表写入失败不阻塞：文件副本仍然可用。
+            }
+        }
+
+        private static string AppDataDirectory()
+        {
+            string directory = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+                "StudyMask");
+            try
+            {
+                Directory.CreateDirectory(directory);
+            }
+            catch
+            {
+                // Ignore.
+            }
+            return directory;
+        }
+
+        private static string ReadAppDataFile(string name)
+        {
+            try
+            {
+                string path = Path.Combine(AppDataDirectory(), name);
+                return File.Exists(path) ? File.ReadAllText(path, Encoding.UTF8).Trim() : "";
+            }
+            catch
+            {
+                return "";
+            }
+        }
+
+        private static void WriteAppDataFile(string name, string value)
+        {
+            try
+            {
+                File.WriteAllText(
+                    Path.Combine(AppDataDirectory(), name),
+                    value,
+                    Encoding.UTF8);
+            }
+            catch
+            {
+                // Ignore.
+            }
         }
     }
 

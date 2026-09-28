@@ -1,0 +1,23 @@
+{
+  "name": "study-mask-payment-service",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node server.mjs",
+    "dev": "node --watch server.mjs",
+    "setup:product": "node scripts/create-product.mjs",
+    "setup:webhook": "node scripts/setup-webhook.mjs",
+    "inspect:products": "node scripts/list-products.mjs",
+    "verify": "node scripts/verify.mjs",
+    "verify:alipay": "node scripts/verify-alipay.mjs",
+    "test": "node --test"
+  },
+  "dependencies": {
+    "@waffo/pancake-ts": "^0.1.9",
+    "alipay-sdk": "^4.14.0"
+  }
+}
